@@ -7,27 +7,35 @@ using TpLab.HeavensGate.Udon;
 
 namespace Kago171.SpatialMusic.Udon
 {
-    public class SpatialMusicPlayerForOpening : UdonSharpBehaviour
+    public class SpatialMusicPlayerWithIntroOutro : UdonSharpBehaviour
     {
         [Space(10)]
-        [Header("（SpatialMusicPlayerにオープニング音源用の特殊処理を加えたもの）")]
+        [Header("（SpatialMusicPlayerにイントロ・アウトロつき音源用の特殊処理を加えたもの）")]
         [Header("【Playerの位置に応じて再生状態や音量を変化させる】")]
 
         [SerializeField]
-        [Tooltip("オープニング楽曲のループ音源用ファイル(ogg等)")]
+        [Tooltip("イントロ音源用ファイル(ogg等)")]
+        AudioClip introMusicClip;
+
+        [SerializeField]
+        [Tooltip("ループ音源用ファイル(ogg等)（イントロ音源から接続再生、およびこの音源自体もループ再生する）")]
         AudioClip loopMusicClip;
 
         [SerializeField]
-        [Tooltip("オープニング楽曲のコーダ音源用ファイル（ループ音源から接続再生する音源）")]
-        AudioClip codaMusicClip;
+        [Tooltip("アウトロ音源用ファイル（ループ音源から接続再生する音源）")]
+        AudioClip outroMusicClip;
 
         [SerializeField]
-        [Tooltip("ループ音源用AudioSource)")]
+        [Tooltip("イントロ音源用AudioSource（指定のない場合ループ音源から再生開始する）")]
+        AudioSource introAudioSource;
+
+        [SerializeField]
+        [Tooltip("ループ音源用AudioSource")]
         AudioSource loopAudioSource;
 
         [SerializeField]
-        [Tooltip("コーダ音源用AudioSource)")]
-        AudioSource codaAudioSource;
+        [Tooltip("アウトロ音源用AudioSource（指定のない場合ループ音源から遷移しない）")]
+        AudioSource outroAudioSource;
 
         [SerializeField]
         [Tooltip("再生時の最大音量。これを基準にして距離による減衰を加える")]
@@ -42,6 +50,10 @@ namespace Kago171.SpatialMusic.Udon
         float smoothVolumeOff = 0.01f;
 
         [SerializeField]
+        [Tooltip("alwaysOnPlayback = false の場合、開始のタイミングをテンポに合わせる(0→即時再生、70→BPM70の1拍分で同期する)")]
+        float startPlaybackSyncBPM = 0f;
+
+        [SerializeField]
         [Tooltip("この範囲内でのみ音量計算する。Is Trigger を有効化した Box Collider コンポーネントを持たせること")]
         SpatialMusicPlayerCollider safeArea;   // 負荷軽減のため、この範囲外では音量計算をしない(0固定)。 SafeArea として使う場合、 Is Trigger を有効化した Box Collider を追加しておくこと
 
@@ -54,19 +66,27 @@ namespace Kago171.SpatialMusic.Udon
         SpatialMusicPlayerCollider[] negativeColliders;    // 音源を止める（音量を下げる）領域。複数指定可。Colliderコンポーネントは持たせなくてもよい（SafeArea として使わない場合）
 
         [SerializeField]
-        [Tooltip("オープニング終了時、ここに設定した Collider をミュートする(volume=0)。複数選択可。（オープニング終了時に消したい音源の Collider や、オープニング終了後から流したい音源の negativeCollider をここに設定する）")]
+        [Tooltip("再生終了時、ここに設定した Collider をミュートする(volume=0)。複数選択可。（再生終了時に消したい音源の Collider や、再生終了後から流したい音源の negativeCollider をここに設定する）")]
         SpatialMusicPlayerCollider[] stopCollidersAfterOpening;
 
         [SerializeField]
-        [Tooltip("オープニング終了時、stopCollidersAfterOpening の Volume を 0 にするまでのフェードアウト時間（秒）")]
-        float codaFadeLengthSec = 1f;
+        [Tooltip("再生終了時、stopCollidersAfterOpening の Volume を 0 にするまでのフェードアウト時間（秒）")]
+        float outroFadeLengthSec = 1f;
 
         [SerializeField]
-        [Tooltip("この領域に入ったとき、もしくは出たときにオープニング音源の再生状況をリセットする")]
+        [Tooltip("この領域に入ったとき、もしくは出たときにループ音源からアウトロ音源への遷移を開始する。設定がない場合遷移しない")]
+        SpatialMusicPlayerCollider endLoopArea;
+
+        [SerializeField]
+        [Tooltip("true: endLoopArea に入った時, false: endLoopArea を出た時 にループ音源からアウトロ音源への遷移を開始する")]
+        bool endLoopWhenEnterEndLoopArea = true;
+
+        [SerializeField]
+        [Tooltip("この領域に入ったとき、もしくは出たときに音源再生状況をリセットする")]
         SpatialMusicPlayerCollider resetArea;
 
         [SerializeField]
-        [Tooltip("true: ResetAreaに入った時, false: ResetAreaを出た時 に自動的にオープニング音源再生状況をリセットする")]
+        [Tooltip("true: resetArea に入った時, false: resetArea を出た時 に自動的に音源再生状況をリセットする")]
         bool resetWhenEnterResetArea = true;
 
         [SerializeField]
@@ -75,28 +95,39 @@ namespace Kago171.SpatialMusic.Udon
 
         float mainLastVolume = 0f;
 
-        bool mainCodaScheduled = false;  // mainLoop→mainCodaへの切替を行った
+        bool started = false;  // イントロ音源もしくはループ音源が再生開始されたフラグ（リセット時のみクリア）
+        bool loopStarted = false;  // （イントロ音源から遷移して）ループ音源の再生を開始したフラグ（リセット時のみクリア）
+        bool outroScheduled = false;  // ループ音源→アウトロ音源への切替を予約したフラグ（リセットもしくは予約をキャンセルした場合にクリア）
         Vector3 playerpos_v = Vector3.zero;
         Vector3 playerpos_r = Vector3.zero;
-        float[] stopCollidersAfterOpeningVolumes;    // mainCodaの終了時、stopCollidersAfterOpeningのVolumeをフェードアウトするので、元の値を記録しておく
+        float[] stopCollidersAfterOpeningVolumes;    // アウトロ音源の終了時、stopCollidersAfterOpeningのVolumeをフェードアウトするので、元の値を記録しておく
 
-        // オープニング音源(mainLoop/mainCoda)が再度流れる状態にリセットする
-        public void ResetOpeningSound() {
-            //Debug.Log("[Kago] SpatialMusicPlayerForOpening.ResetOpeningSound()");
-            loopAudioSource.volume = 0f;
-            codaAudioSource.volume = 0f;
+        // 音源が再度流れる状態にリセットする
+        public void ResetSound() {
+            //Debug.Log("[Kago] SpatialMusicPlayerWithIntroOutro.ResetSound()");
+            if (introAudioSource != null) {
+                introAudioSource.volume = 0f;
+                introAudioSource.time = 0f;
+                introAudioSource.loop = false;
+                introAudioSource.Stop();                
+            }
+            if (loopAudioSource != null) {
+                loopAudioSource.volume = 0f;
+                loopAudioSource.time = 0f;
+                loopAudioSource.loop = true;
+                loopAudioSource.Stop();                
+            }
+            if (outroAudioSource != null) {
+                outroAudioSource.volume = 0f;
+                outroAudioSource.time = 0f;
+                outroAudioSource.loop = false;
+                outroAudioSource.Stop();                
+            }
 
-            loopAudioSource.time = 0f;
-            codaAudioSource.time = 0f;
-
-            loopAudioSource.loop = true;
-            codaAudioSource.loop = false;
-
-            loopAudioSource.Stop();
-            codaAudioSource.Stop();
-
-            // mainCodaを再生スケジュールしていない状態に戻す
-            mainCodaScheduled = false;
+            // 各音源の再生・遷移フラグを戻す
+            started = false;
+            loopStarted = false;
+            outroScheduled = false;
 
             // stopCollidersAfterOpeningのvolumeを初期値に戻す
             for (int i = 0; i < stopCollidersAfterOpening.Length; i++) {
@@ -106,19 +137,31 @@ namespace Kago171.SpatialMusic.Udon
 
         void Start()
         {
-            // mainLoop音源の初期設定（ループあり）
-            loopAudioSource.volume = 0f;
-            loopAudioSource.clip = loopMusicClip;
-            loopAudioSource.loop = true;
-            loopAudioSource.playOnAwake = false;
+            // イントロ音源の初期設定（ループなし）
+            if (introAudioSource != null) {
+                introAudioSource.volume = 0f;
+                introAudioSource.clip = introMusicClip;
+                introAudioSource.loop = false;
+                introAudioSource.playOnAwake = false;
+            }
 
-            // mainCoda音源の初期設定（ループなし）
-            codaAudioSource.volume = 0f;
-            codaAudioSource.clip = codaMusicClip;
-            codaAudioSource.loop = false;
-            codaAudioSource.playOnAwake = false;
+            // ループ音源の初期設定（ループあり）
+            if (loopAudioSource != null) {
+                loopAudioSource.volume = 0f;
+                loopAudioSource.clip = loopMusicClip;
+                loopAudioSource.loop = true;
+                loopAudioSource.playOnAwake = false;
+            }
 
-            // mainCodaの終了時、stopCollidersAfterOpeningのVolumeをフェードアウトするので、Volumeの初期値を記録しておく
+            // アウトロ音源の初期設定（ループなし）
+            if (outroAudioSource != null) {
+                outroAudioSource.volume = 0f;
+                outroAudioSource.clip = outroMusicClip;
+                outroAudioSource.loop = false;
+                outroAudioSource.playOnAwake = false;
+            }
+
+            // アウトロ音源の終了時、stopCollidersAfterOpeningのVolumeをフェードアウトするので、Volumeの初期値を記録しておく
             this.stopCollidersAfterOpeningVolumes = new float[stopCollidersAfterOpening.Length];
             for (int i = 0; i < stopCollidersAfterOpening.Length; i++) {
                 this.stopCollidersAfterOpeningVolumes[i] = stopCollidersAfterOpening[i].volume;
@@ -128,15 +171,15 @@ namespace Kago171.SpatialMusic.Udon
         void Update()
         {
             // マスター音量を取得する。マスター音量は全ての音量に優先し、フェードの影響を受けないため、ミュート時は瞬時に無音になる。
-            // ミュート解除時に瞬時に音量を戻すため、ミュート中でも音量計算を行う。
             float masterVolume = 1f;
             if (manager) {
                 masterVolume = (manager.GetMasterMute()) ? 0f : manager.GetMasterVolume();
             }
             // マスター音量が0（ミュート状態も含む）の場合、必ず音量は0なので、一切音量計算をせずに終了する。
             if (Mathf.Approximately(masterVolume, 0)) {
-                loopAudioSource.volume = 0f;
-                codaAudioSource.volume = 0f;
+                if (introAudioSource != null) { introAudioSource.volume = 0f; }
+                if (loopAudioSource != null) { loopAudioSource.volume = 0f; }
+                if (outroAudioSource != null) { outroAudioSource.volume = 0f; }
                 return;
             }
 
@@ -144,65 +187,115 @@ namespace Kago171.SpatialMusic.Udon
             playerpos_r = manager.GetPlayerPositionR();
             playerpos_v = manager.GetPlayerPositionV();
 
-            // resetWhenEnterResetArea==true の場合は ResetArea の中、false の場合は外にいて、かつ mainLoop、mainCodaとも再生が停止している時、オープニング音源再生状況をリセットする
-            if (mainCodaScheduled && !loopAudioSource.isPlaying && !codaAudioSource.isPlaying && resetArea) {
-                if ((resetWhenEnterResetArea == IsInSafeArea((resetArea.useVirtualPosition ? playerpos_v : playerpos_r), resetArea))) {
-                    //Debug.Log("[Kago] SpatialMusicPlayerForOpening: call ResetOpeningSound()");
-                    ResetOpeningSound();
+
+            float distanceVolume = GetDistanceVolume(colliders, negativeColliders);
+            float distanceVolumeNonFade_ForLog = distanceVolume;
+            distanceVolume = GetFadedDistanceVolume(distanceVolume, mainLastVolume, smoothVolumeOn, smoothVolumeOff);
+
+            // ループ音源が再生中の場合、（イントロ音源から遷移して）ループ音源の再生を開始したフラグを立てる
+            if (!loopStarted && loopAudioSource.isPlaying) {
+                //Debug.Log("[Kago] SpatialMusicPlayerWithIntroOutro: intro->loop");
+                loopStarted = true;
+            }
+
+            if (introAudioSource != null && !loopStarted) {
+                // イントロ音源が設定されている場合、音量最大になったらイントロ音源再生開始かつ続けてループ音源の再生を予約する。音量ゼロになったら再生停止
+                if (!introAudioSource.isPlaying && (distanceVolume >= 1f)) {
+                        if (startPlaybackSyncBPM == 0f || (manager.GetElapsedTime() % (60 / startPlaybackSyncBPM) < 0.03f)) {    // startPlaybackSyncBPMを設定している場合、タイミングを合わせて開始
+                            //Debug.Log("[Kago] SpatialMusicPlayerWithIntroOutro: introStarted");
+                            introAudioSource.Play();
+                            loopAudioSource.PlayScheduled(AudioSettings.dspTime + (introMusicClip.length - introAudioSource.time));
+                            started = true;
+                        }
+                }
+                else if (distanceVolume <= 0f) {
+                    if (introAudioSource.isPlaying) {
+                        //Debug.Log("[Kago] SpatialMusicPlayerWithIntroOutro: introStopped");
+                        introAudioSource.Stop();
+                    }
+                }
+            }
+            else {
+                // イントロ音源が設定されていない、またはイントロ音源からループ音源に遷移してから停止した場合
+                if (!loopAudioSource.isPlaying && (distanceVolume > 0f) && !outroScheduled) {    // ループ音源はアウトロ音源に遷移していないことも条件
+                    // 音量ゼロでなくなったら現在時刻にもとづいた位置からループ音源を再生開始
+                    //Debug.Log("[Kago] SpatialMusicPlayerWithIntroOutro: loopStarted");
+                    loopAudioSource.Play();
+                    loopAudioSource.time = manager.GetElapsedTime() % loopAudioSource.clip.length; // 先頭から再生しない場合、現在の時間に応じたタイミングにシークする
+                    loopAudioSource.loop = true;
+                    started = true;
+                }
+                else if (loopAudioSource.isPlaying && (distanceVolume <= 0f)) {
+                    // ループ音源再生中、音量ゼロになったらループ音源再生停止、アウトロ音源への遷移が予約されていたらそれもキャンセル
+                    //Debug.Log("[Kago] SpatialMusicPlayerWithIntroOutro: loopStopped");
+                    loopAudioSource.Stop();
+                    outroAudioSource.Stop();
+                    outroScheduled = false;
+                }
+                else if (outroAudioSource.isPlaying && (distanceVolume <= 0f)) {
+                    // アウトロ音源再生中、音量ゼロになったらアウトロ音源再生停止
+                    //Debug.Log("[Kago] SpatialMusicPlayerWithIntroOutro: outroStopped");
+                    outroAudioSource.Stop();
+                    outroScheduled = false;
                 }
             }
 
-            // mainCodaの再生が終わり際(codaFadeLengthSec 以内)であれば、stopCollidersAfterOpeningのvolumeを減らしていく
-            if (codaAudioSource.isPlaying) {
-                float mainCodaLastSec = codaMusicClip.length - codaAudioSource.time;
-                if (mainCodaLastSec < codaFadeLengthSec) {
-                    for (int i = 0; i < stopCollidersAfterOpening.Length; i++) {
-                        if (stopCollidersAfterOpening[i]) {
-                            stopCollidersAfterOpening[i].volume = this.stopCollidersAfterOpeningVolumes[i] * mainCodaLastSec / codaFadeLengthSec;
+            // アウトロ音源が設定されている場合のみ、以下3つの処理を行う
+            if (outroAudioSource != null) {
+
+                // ループ音源からアウトロ音源への遷移を予約
+                // （endLoopWhenEnterEndLoopArea==true の場合は endLoopArea の中、false の場合は外にいて、かつ ループ音源が再生中の時のみ）
+                if (!outroScheduled && loopAudioSource.isPlaying && distanceVolume >= 1f && endLoopArea != null) {
+                    if ((endLoopWhenEnterEndLoopArea == IsInSafeArea((endLoopArea.useVirtualPosition ? playerpos_v : playerpos_r), endLoopArea))) {
+                        //Debug.Log("[Kago] SpatialMusicPlayerWithIntroOutro: loop->outro");
+                        // ループ音源 のループ解除
+                        loopAudioSource.loop = false;
+                        // ループ音源 再生終了後に アウトロ音源 再生開始を予約
+                        outroAudioSource.PlayScheduled(AudioSettings.dspTime + (loopMusicClip.length - loopAudioSource.time));
+                        outroScheduled = true;
+                    }
+                }
+
+                // オープニング音源再生状況をリセット
+                // （resetWhenEnterResetArea==true の場合は ResetArea の中、false の場合は外にいて、かつ ループ音源、アウトロ音源とも再生が停止している時のみ）
+                if (started && !loopAudioSource.isPlaying && !outroAudioSource.isPlaying && resetArea != null) {
+                    if ((resetWhenEnterResetArea == IsInSafeArea((resetArea.useVirtualPosition ? playerpos_v : playerpos_r), resetArea))) {
+                        //Debug.Log("[Kago] SpatialMusicPlayerWithIntroOutro: call ResetSound()");
+                        ResetSound();
+                    }
+                }
+
+                // アウトロ音源の再生が終わり際(outroFadeLengthSec 以内)であれば、stopCollidersAfterOpeningのvolumeを減らしていく
+                if (outroAudioSource.isPlaying) {
+                    float outroLastSec = outroMusicClip.length - outroAudioSource.time;
+                    if (outroLastSec < outroFadeLengthSec) {
+                        for (int i = 0; i < stopCollidersAfterOpening.Length; i++) {
+                            if (stopCollidersAfterOpening[i]) {
+                                stopCollidersAfterOpening[i].volume = this.stopCollidersAfterOpeningVolumes[i] * outroLastSec / outroFadeLengthSec;
+                            }
                         }
                     }
                 }
             }
 
-            float mainDistanceVolume = GetDistanceVolume(colliders, negativeColliders);
-            float mainDistanceVolumeNonFade_ForLog = mainDistanceVolume;
-            mainDistanceVolume = GetFadedDistanceVolume(mainDistanceVolume, mainLastVolume, smoothVolumeOn, smoothVolumeOff);
-
-
-            // mainLoopは音量ゼロでなくなったら現在時刻にもとづいた位置から再生開始、音量ゼロになったら再生停止
-            if (!loopAudioSource.isPlaying && (mainDistanceVolume > 0f) && !mainCodaScheduled) {    // mainLoopはmainCodaに遷移していないことも条件
-                loopAudioSource.Play();
-                loopAudioSource.time = manager.GetElapsedTime() % loopAudioSource.clip.length; // 先頭から再生しない場合、現在の時間に応じたタイミングにシークする
-            }
-            else if (loopAudioSource.isPlaying && (mainDistanceVolume <= 0f)) {
-                loopAudioSource.Stop();
-            }
-
-            // main音源の音量が最大になったらmainLoop→mainCodaへの切替処理
-            if (!mainCodaScheduled && !codaAudioSource.isPlaying && (mainDistanceVolume >= 1f)) {
-                // mainLoop のループ解除
-                loopAudioSource.loop = false;
-                // mainLoop 再生終了後に mainCoda 再生開始をスケジュール
-                codaAudioSource.PlayScheduled(AudioSettings.dspTime + (loopMusicClip.length - loopAudioSource.time));
-                mainCodaScheduled = true;
-            }
-
-            mainLastVolume = mainDistanceVolume;
+            mainLastVolume = distanceVolume;
 
             // SpatialMusicPlayerManager にログを追加（SpatialMusicPlayerManager側で全音源のデータをまとめて出力させる）
             if (manager && manager.GetEnableDebugLog()) {
-                if (mainDistanceVolume > 0f) {
-                    AddDebugLog(name + "_ML", mainDistanceVolume, mainDistanceVolumeNonFade_ForLog, loopAudioSource);
-                    AddDebugLog(name + "_MC", mainDistanceVolume, mainDistanceVolumeNonFade_ForLog, codaAudioSource);
+                if (distanceVolume > 0f) {
+                    AddDebugLog(name + "_I", distanceVolume, distanceVolumeNonFade_ForLog, introAudioSource);
+                    AddDebugLog(name + "_L", distanceVolume, distanceVolumeNonFade_ForLog, loopAudioSource);
+                    AddDebugLog(name + "_O", distanceVolume, distanceVolumeNonFade_ForLog, outroAudioSource);
                 }
             }
 
             // 各AudioSourceから実際に出る音量の設定
-            loopAudioSource.volume = masterVolume * (mainDistanceVolume) * maxVolume;
-            if (loopAudioSource.volume > 1f) {
-                loopAudioSource.volume = 1f;
+            introAudioSource.volume = masterVolume * (distanceVolume) * maxVolume;
+            if (introAudioSource.volume > 1f) {
+                introAudioSource.volume = 1f;
             }
-            codaAudioSource.volume = loopAudioSource.volume;
+            loopAudioSource.volume = introAudioSource.volume;
+            outroAudioSource.volume = introAudioSource.volume;
         }
 
         // player位置とcolliderをもとに、distanceVolumeを計算する。

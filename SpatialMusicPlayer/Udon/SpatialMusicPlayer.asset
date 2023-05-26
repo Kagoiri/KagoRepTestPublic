@@ -726,7 +726,7 @@ MonoBehaviour:
       Data: 51|UnityEngine.TooltipAttribute, UnityEngine.CoreModule
     - Name: tooltip
       Entry: 1
-      Data: "alwaysOnPlayback = true \u306E\u5834\u5408\u3001\u958B\u59CB\u306E\u30BF\u30A4\u30DF\u30F3\u30B0\u3092\u30C6\u30F3\u30DD\u306B\u5408\u308F\u305B\u308B(0\u2192\u5373\u6642\u518D\u751F\u300170\u2192BPM70\u306E1\u62CD\u5206\u3067\u540C\u671F\u3059\u308B)"
+      Data: "alwaysOnPlayback = false \u306E\u5834\u5408\u3001\u958B\u59CB\u306E\u30BF\u30A4\u30DF\u30F3\u30B0\u3092\u30C6\u30F3\u30DD\u306B\u5408\u308F\u305B\u308B(0\u2192\u5373\u6642\u518D\u751F\u300170\u2192BPM70\u306E1\u62CD\u5206\u3067\u540C\u671F\u3059\u308B)"
     - Name: 
       Entry: 8
       Data: 

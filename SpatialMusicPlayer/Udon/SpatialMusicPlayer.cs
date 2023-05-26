@@ -49,7 +49,7 @@ namespace Kago171.SpatialMusic.Udon
         bool alwaysOnPlayback = true;
 
         [SerializeField]
-        [Tooltip("alwaysOnPlayback = true の場合、開始のタイミングをテンポに合わせる(0→即時再生、70→BPM70の1拍分で同期する)")]
+        [Tooltip("alwaysOnPlayback = false の場合、開始のタイミングをテンポに合わせる(0→即時再生、70→BPM70の1拍分で同期する)")]
         float startPlaybackSyncBPM = 0f;
 
         [SerializeField]
