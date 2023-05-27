@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c333ccfdd0cbdbc4ca30cef2dd6e6b9b, type: 3}
   m_Name: SpatialMusicPlayerManager
   m_EditorClassIdentifier: 
-  serializedUdonProgramAsset: {fileID: 11400000, guid: f6db1e271dc98ed48bc80823eb38407f,
+  serializedUdonProgramAsset: {fileID: 11400000, guid: 432c9c580a99acb448fb3eac78727af4,
     type: 2}
   udonAssembly: 
   assemblyError: 

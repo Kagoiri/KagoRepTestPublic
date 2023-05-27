@@ -52,12 +52,20 @@ namespace Kago171.SpatialMusic.Udon
         void Update()
         {
             if (enableDebugLog && debugLogText) {
+                debugLogText.text = $"T[({GetElapsedTime()})]\r\n";
+
                 // playerの位置を取得してログ出力（位置は頭の位置を使用）
                 Vector3 playerpos_v = Vector3.zero;
                 Vector3 playerpos_r = Vector3.zero;
-                if (playerLocationManager) {
+                if (playerLocationManager != null) {
                     playerpos_r = playerLocationManager.GetRealHeadPosition();
                     playerpos_v = playerLocationManager.GetVirtualHeadPosition();
+                    if (playerLocationManager.IsInExhibitionRoom) {
+                        debugLogText.text += $"V[({playerpos_v.x:f1}, {playerpos_v.z:f1}, {playerpos_v.y:f1})] R[({playerpos_r.x:f1}, {playerpos_r.z:f1}, {playerpos_r.y:f1})]\r\n";
+                    }
+                    else {
+                        debugLogText.text += $"R[({playerpos_r.x:f1}, {playerpos_r.z:f1}, {playerpos_r.y:f1})]\r\n";
+                    }
                 }
                 else {
                     // playerLocationManager が設定されていなかった場合、RealPositionを使う
@@ -65,12 +73,6 @@ namespace Kago171.SpatialMusic.Udon
                         playerpos_r = Networking.LocalPlayer.GetTrackingData(VRCPlayerApi.TrackingDataType.Head).position;
                         playerpos_v = playerpos_r;
                     }
-                }
-                debugLogText.text = $"T[({GetElapsedTime()})]\r\n";
-                if (playerLocationManager.IsInExhibitionRoom) {
-                    debugLogText.text += $"V[({playerpos_v.x:f1}, {playerpos_v.z:f1}, {playerpos_v.y:f1})] R[({playerpos_r.x:f1}, {playerpos_r.z:f1}, {playerpos_r.y:f1})]\r\n";
-                }
-                else {
                     debugLogText.text += $"R[({playerpos_r.x:f1}, {playerpos_r.z:f1}, {playerpos_r.y:f1})]\r\n";
                 }
 
@@ -154,7 +156,7 @@ namespace Kago171.SpatialMusic.Udon
         // 一度流れたオープニング音源が再度流れる状態にリセットする
         public void ResetOpeningSound() {
             //Debug.Log("[Kago] SpatialMusicPlayerManager.ResetOpeningSound()");
-            if (spatialMusicPlayerForOpening) {
+            if (spatialMusicPlayerForOpening != null) {
                 spatialMusicPlayerForOpening.ResetOpeningSound();
             }
         }

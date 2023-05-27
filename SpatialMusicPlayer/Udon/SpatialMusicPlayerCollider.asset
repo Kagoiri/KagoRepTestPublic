@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c333ccfdd0cbdbc4ca30cef2dd6e6b9b, type: 3}
   m_Name: SpatialMusicPlayerCollider
   m_EditorClassIdentifier: 
-  serializedUdonProgramAsset: {fileID: 11400000, guid: d7a147007f20a5f469503573b09fee34,
+  serializedUdonProgramAsset: {fileID: 11400000, guid: 542537d7f744c414ba3c61c4570fa321,
     type: 2}
   udonAssembly: 
   assemblyError: 

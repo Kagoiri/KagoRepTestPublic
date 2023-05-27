@@ -3,7 +3,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using VRC.SDKBase;
 using VRC.Udon;
-using TpLab.HeavensGate.Udon;
+//using TpLab.HeavensGate.Udon;
 
 namespace Kago171.SpatialMusic.Udon
 {
@@ -62,6 +62,14 @@ namespace Kago171.SpatialMusic.Udon
         float codaFadeLengthSec = 1f;
 
         [SerializeField]
+        [Tooltip("この領域に入ったとき、もしくは出たときにオープニング音源を再生開始する(colliders のミュートを解除する)。設定がない場合、初期状態で再生開始する")]
+        SpatialMusicPlayerCollider startArea;
+
+        [SerializeField]
+        [Tooltip("true: StartAreaに入った時, false: StartAreaを出た時 にオープニング音源を再生開始する")]
+        bool startWhenEnterStartArea = true;
+
+        [SerializeField]
         [Tooltip("この領域に入ったとき、もしくは出たときにオープニング音源の再生状況をリセットする")]
         SpatialMusicPlayerCollider resetArea;
 
@@ -75,9 +83,11 @@ namespace Kago171.SpatialMusic.Udon
 
         float mainLastVolume = 0f;
 
+        bool started = false;  // startAreaに入ったor出たことにより、オープニング音源再生が開始された
         bool mainCodaScheduled = false;  // mainLoop→mainCodaへの切替を行った
         Vector3 playerpos_v = Vector3.zero;
         Vector3 playerpos_r = Vector3.zero;
+        float[] stopCollidersVolumes;    // 開始時、collidersのVolumeを0にするので、元の値を記録しておく
         float[] stopCollidersAfterOpeningVolumes;    // mainCodaの終了時、stopCollidersAfterOpeningのVolumeをフェードアウトするので、元の値を記録しておく
 
         // オープニング音源(mainLoop/mainCoda)が再度流れる状態にリセットする
@@ -102,31 +112,62 @@ namespace Kago171.SpatialMusic.Udon
             for (int i = 0; i < stopCollidersAfterOpening.Length; i++) {
                 stopCollidersAfterOpening[i].volume = this.stopCollidersAfterOpeningVolumes[i];
             }
+
+            // 再生開始前状態に戻して、colliders を再度ミュート(volume=0)
+            if (startArea != null && colliders != null) {
+                started = false;
+                for (int i = 0; i < colliders.Length; i++) {
+                    colliders[i].volume = 0f;
+                }
+            }
         }
 
         void Start()
         {
             // mainLoop音源の初期設定（ループあり）
-            loopAudioSource.volume = 0f;
-            loopAudioSource.clip = loopMusicClip;
-            loopAudioSource.loop = true;
-            loopAudioSource.playOnAwake = false;
+            if (loopAudioSource != null) {
+                loopAudioSource.volume = 0f;
+                loopAudioSource.clip = loopMusicClip;
+                loopAudioSource.loop = true;
+                loopAudioSource.playOnAwake = false;
+            }
 
             // mainCoda音源の初期設定（ループなし）
-            codaAudioSource.volume = 0f;
-            codaAudioSource.clip = codaMusicClip;
-            codaAudioSource.loop = false;
-            codaAudioSource.playOnAwake = false;
+            if (codaAudioSource != null) {
+                codaAudioSource.volume = 0f;
+                codaAudioSource.clip = codaMusicClip;
+                codaAudioSource.loop = false;
+                codaAudioSource.playOnAwake = false;
+            }
 
             // mainCodaの終了時、stopCollidersAfterOpeningのVolumeをフェードアウトするので、Volumeの初期値を記録しておく
             this.stopCollidersAfterOpeningVolumes = new float[stopCollidersAfterOpening.Length];
             for (int i = 0; i < stopCollidersAfterOpening.Length; i++) {
                 this.stopCollidersAfterOpeningVolumes[i] = stopCollidersAfterOpening[i].volume;
             }
+
+            // startArea の設定がある場合は、オープニング再生開始を待つため colliders をミュート(volume=0)、元に戻す際のためにVolumeの初期値を記録しておく
+            // startArea の設定がない場合は、何もしない（初期状態でオープニング再生が開始しているものとする）
+            if (startArea == null) {
+                started = true;
+            }
+            else if (colliders != null) {
+                this.stopCollidersVolumes = new float[colliders.Length];
+                for (int i = 0; i < stopCollidersVolumes.Length; i++) {
+                    this.stopCollidersVolumes[i] = colliders[i].volume;
+                    colliders[i].volume = 0f;
+                }
+            }
         }
 
         void Update()
         {
+            // SpatialMusicPlayerManager と AudioSource は（現状では）必須
+            if (manager == null || loopAudioSource == null || codaAudioSource == null) {
+                Debug.LogError($"[{name}] <SpatialMusicPlayerForOpening> : Manager or any Audio Source is not found!");
+                return;
+            }
+
             // マスター音量を取得する。マスター音量は全ての音量に優先し、フェードの影響を受けないため、ミュート時は瞬時に無音になる。
             // ミュート解除時に瞬時に音量を戻すため、ミュート中でも音量計算を行う。
             float masterVolume = 1f;
@@ -143,6 +184,17 @@ namespace Kago171.SpatialMusic.Udon
             // playerの位置を取得（位置は頭の位置を使用）
             playerpos_r = manager.GetPlayerPositionR();
             playerpos_v = manager.GetPlayerPositionV();
+
+            // startWhenEnterStartArea==true の場合は startArea の中、false の場合は外にいる時、 colliders のミュートを解除する
+            if (!started && startArea && !mainCodaScheduled) {
+                if ((startWhenEnterStartArea == IsInSafeArea((startArea.useVirtualPosition ? playerpos_v : playerpos_r), startArea))) {
+                    //Debug.Log("[Kago] SpatialMusicPlayerForOpening: started = true");
+                    for (int i = 0; i < colliders.Length; i++) {
+                        colliders[i].volume = this.stopCollidersVolumes[i];
+                    }
+                    started = true;
+                }
+            }
 
             // resetWhenEnterResetArea==true の場合は ResetArea の中、false の場合は外にいて、かつ mainLoop、mainCodaとも再生が停止している時、オープニング音源再生状況をリセットする
             if (mainCodaScheduled && !loopAudioSource.isPlaying && !codaAudioSource.isPlaying && resetArea) {

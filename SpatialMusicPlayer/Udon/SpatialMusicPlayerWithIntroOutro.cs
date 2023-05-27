@@ -1,9 +1,9 @@
-﻿using UdonSharp;
+using UdonSharp;
 using UnityEngine;
 using UnityEngine.UI;
 using VRC.SDKBase;
 using VRC.Udon;
-using TpLab.HeavensGate.Udon;
+//using TpLab.HeavensGate.Udon;
 
 namespace Kago171.SpatialMusic.Udon
 {
@@ -98,6 +98,7 @@ namespace Kago171.SpatialMusic.Udon
         bool started = false;  // イントロ音源もしくはループ音源が再生開始されたフラグ（リセット時のみクリア）
         bool loopStarted = false;  // （イントロ音源から遷移して）ループ音源の再生を開始したフラグ（リセット時のみクリア）
         bool outroScheduled = false;  // ループ音源→アウトロ音源への切替を予約したフラグ（リセットもしくは予約をキャンセルした場合にクリア）
+        bool outroFadeStarted = false;  // アウトロ音源の最後のフェード処理が開始したフラグ（リセット時のみクリア）
         Vector3 playerpos_v = Vector3.zero;
         Vector3 playerpos_r = Vector3.zero;
         float[] stopCollidersAfterOpeningVolumes;    // アウトロ音源の終了時、stopCollidersAfterOpeningのVolumeをフェードアウトするので、元の値を記録しておく
@@ -128,6 +129,7 @@ namespace Kago171.SpatialMusic.Udon
             started = false;
             loopStarted = false;
             outroScheduled = false;
+            outroFadeStarted = false;
 
             // stopCollidersAfterOpeningのvolumeを初期値に戻す
             for (int i = 0; i < stopCollidersAfterOpening.Length; i++) {
@@ -170,11 +172,15 @@ namespace Kago171.SpatialMusic.Udon
 
         void Update()
         {
+            // SpatialMusicPlayerManager と ループ音源用の audioSource は（現状では）必須
+            if (manager == null || loopAudioSource == null) {
+                Debug.LogError($"[{name}] <SpatialMusicPlayerWithIntroOutro> : Manager or Loop Audio Source is not found!");
+                return;
+            }
+
             // マスター音量を取得する。マスター音量は全ての音量に優先し、フェードの影響を受けないため、ミュート時は瞬時に無音になる。
             float masterVolume = 1f;
-            if (manager) {
-                masterVolume = (manager.GetMasterMute()) ? 0f : manager.GetMasterVolume();
-            }
+            masterVolume = (manager.GetMasterMute()) ? 0f : manager.GetMasterVolume();
             // マスター音量が0（ミュート状態も含む）の場合、必ず音量は0なので、一切音量計算をせずに終了する。
             if (Mathf.Approximately(masterVolume, 0)) {
                 if (introAudioSource != null) { introAudioSource.volume = 0f; }
@@ -187,13 +193,12 @@ namespace Kago171.SpatialMusic.Udon
             playerpos_r = manager.GetPlayerPositionR();
             playerpos_v = manager.GetPlayerPositionV();
 
-
             float distanceVolume = GetDistanceVolume(colliders, negativeColliders);
             float distanceVolumeNonFade_ForLog = distanceVolume;
             distanceVolume = GetFadedDistanceVolume(distanceVolume, mainLastVolume, smoothVolumeOn, smoothVolumeOff);
 
-            // ループ音源が再生中の場合、（イントロ音源から遷移して）ループ音源の再生を開始したフラグを立てる
-            if (!loopStarted && loopAudioSource.isPlaying) {
+            // ループ音源が再生中かつイントロ音源が停止中（もしくは存在しない）の場合、ループ音源の再生を開始したフラグを立てる
+            if (!loopStarted && loopAudioSource.isPlaying && (introAudioSource == null || !introAudioSource.isPlaying)) {
                 //Debug.Log("[Kago] SpatialMusicPlayerWithIntroOutro: intro->loop");
                 loopStarted = true;
             }
@@ -226,17 +231,25 @@ namespace Kago171.SpatialMusic.Udon
                     started = true;
                 }
                 else if (loopAudioSource.isPlaying && (distanceVolume <= 0f)) {
-                    // ループ音源再生中、音量ゼロになったらループ音源再生停止、アウトロ音源への遷移が予約されていたらそれもキャンセル
+                    // ループ音源再生中、音源から離れるなどして音量ゼロになったらループ音源再生停止＆アウトロ音源への遷移が予約されていたらそれもキャンセル
                     //Debug.Log("[Kago] SpatialMusicPlayerWithIntroOutro: loopStopped");
                     loopAudioSource.Stop();
                     outroAudioSource.Stop();
                     outroScheduled = false;
                 }
                 else if (outroAudioSource.isPlaying && (distanceVolume <= 0f)) {
-                    // アウトロ音源再生中、音量ゼロになったらアウトロ音源再生停止
+                    // アウトロ音源再生中、音源から離れるなどして音量ゼロになったらアウトロ音源再生停止
                     //Debug.Log("[Kago] SpatialMusicPlayerWithIntroOutro: outroStopped");
                     outroAudioSource.Stop();
                     outroScheduled = false;
+                    // 終わり際のフェード中の場合、その時点で再生を終わらせるため、最後までフェードしきっておく
+                    if (outroFadeStarted) {
+                        for (int i = 0; i < stopCollidersAfterOpening.Length; i++) {
+                            if (stopCollidersAfterOpening[i]) {
+                                stopCollidersAfterOpening[i].volume = 0;
+                            }
+                        }
+                    }
                 }
             }
 
@@ -245,7 +258,8 @@ namespace Kago171.SpatialMusic.Udon
 
                 // ループ音源からアウトロ音源への遷移を予約
                 // （endLoopWhenEnterEndLoopArea==true の場合は endLoopArea の中、false の場合は外にいて、かつ ループ音源が再生中の時のみ）
-                if (!outroScheduled && loopAudioSource.isPlaying && distanceVolume >= 1f && endLoopArea != null) {
+                //if (!outroScheduled && loopStarted && loopAudioSource.isPlaying && distanceVolume >= 1f && endLoopArea != null) {
+                if (!outroScheduled && loopStarted && distanceVolume >= 1f && endLoopArea != null) {
                     if ((endLoopWhenEnterEndLoopArea == IsInSafeArea((endLoopArea.useVirtualPosition ? playerpos_v : playerpos_r), endLoopArea))) {
                         //Debug.Log("[Kago] SpatialMusicPlayerWithIntroOutro: loop->outro");
                         // ループ音源 のループ解除
@@ -274,6 +288,8 @@ namespace Kago171.SpatialMusic.Udon
                                 stopCollidersAfterOpening[i].volume = this.stopCollidersAfterOpeningVolumes[i] * outroLastSec / outroFadeLengthSec;
                             }
                         }
+                        //Debug.Log("[Kago] outroFadeStarted");
+                        outroFadeStarted = true;
                     }
                 }
             }
@@ -281,21 +297,22 @@ namespace Kago171.SpatialMusic.Udon
             mainLastVolume = distanceVolume;
 
             // SpatialMusicPlayerManager にログを追加（SpatialMusicPlayerManager側で全音源のデータをまとめて出力させる）
-            if (manager && manager.GetEnableDebugLog()) {
+            if (manager.GetEnableDebugLog()) {
                 if (distanceVolume > 0f) {
-                    AddDebugLog(name + "_I", distanceVolume, distanceVolumeNonFade_ForLog, introAudioSource);
-                    AddDebugLog(name + "_L", distanceVolume, distanceVolumeNonFade_ForLog, loopAudioSource);
-                    AddDebugLog(name + "_O", distanceVolume, distanceVolumeNonFade_ForLog, outroAudioSource);
+                    if (introAudioSource != null) { AddDebugLog(name + "_I", distanceVolume, distanceVolumeNonFade_ForLog, introAudioSource); }
+                    if (loopAudioSource != null) { AddDebugLog(name + "_L", distanceVolume, distanceVolumeNonFade_ForLog, loopAudioSource); }
+                    if (outroAudioSource != null) { AddDebugLog(name + "_O", distanceVolume, distanceVolumeNonFade_ForLog, outroAudioSource); }
                 }
             }
 
             // 各AudioSourceから実際に出る音量の設定
-            introAudioSource.volume = masterVolume * (distanceVolume) * maxVolume;
-            if (introAudioSource.volume > 1f) {
-                introAudioSource.volume = 1f;
+            float fixedVolume = masterVolume * (distanceVolume) * maxVolume;
+            if (fixedVolume > 1f) {
+                fixedVolume = 1f;
             }
-            loopAudioSource.volume = introAudioSource.volume;
-            outroAudioSource.volume = introAudioSource.volume;
+            if (introAudioSource != null) { introAudioSource.volume = fixedVolume; }
+            if (loopAudioSource != null) { loopAudioSource.volume = fixedVolume; }
+            if (outroAudioSource != null) { outroAudioSource.volume = fixedVolume; }
         }
 
         // player位置とcolliderをもとに、distanceVolumeを計算する。

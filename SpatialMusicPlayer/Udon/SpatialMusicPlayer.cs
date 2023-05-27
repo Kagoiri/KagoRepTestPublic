@@ -1,9 +1,9 @@
-﻿using UdonSharp;
+using UdonSharp;
 using UnityEngine;
 using UnityEngine.UI;
 using VRC.SDKBase;
 using VRC.Udon;
-using TpLab.HeavensGate.Udon;
+//using TpLab.HeavensGate.Udon;
 
 namespace Kago171.SpatialMusic.Udon
 {
@@ -71,20 +71,26 @@ namespace Kago171.SpatialMusic.Udon
 
         void Start()
         {
-            audioSource.volume = 0f;
-            audioSource.clip = musicClip;
-            audioSource.loop = loopPlay;
-            audioSource.playOnAwake = false;
-            audioSource.Stop();
+            if (audioSource != null) {
+                audioSource.volume = 0f;
+                audioSource.clip = musicClip;
+                audioSource.loop = loopPlay;
+                audioSource.playOnAwake = false;
+                audioSource.Stop();
+            }
         }
 
         void Update()
         {
+            // SpatialMusicPlayerManager と audioSource は（現状では）必須
+            if (manager == null || audioSource == null) {
+                Debug.LogError($"[{name}] <SpatialMusicPlayer> : Manager or Audio Source is not found!");
+                return;
+            }
+
             // SpatialMusicPlayerManager からマスター音量を取得する。マスター音量は全ての音量に優先し、フェードの影響を受けないため、ミュート時は即座に無音になる。
             float masterVolume = 1f;
-            if (manager) {
-                masterVolume = (manager.GetMasterMute()) ? 0f : manager.GetMasterVolume();
-            }
+            masterVolume = (manager.GetMasterMute()) ? 0f : manager.GetMasterVolume();
             // マスター音量が0（ミュート状態も含む）の場合、出力音量を0として、一切音量計算をせずに終了する。
             if (Mathf.Approximately(masterVolume, 0)) {
                 audioSource.volume = 0;
@@ -132,7 +138,7 @@ namespace Kago171.SpatialMusic.Udon
             lastVolume = distanceVolume;
 
             // SpatialMusicPlayerManager にログを追加（SpatialMusicPlayerManager側で全音源のデータをまとめて出力させる）
-            if (manager && manager.GetEnableDebugLog() && ((distanceVolume > 0f) || forceLog)) {
+            if (manager.GetEnableDebugLog() && ((distanceVolume > 0f) || forceLog)) {
                 AddDebugLog(name, distanceVolume, distanceVolumeNonFade_ForLog, audioSource);
             }
 
