@@ -13,6 +13,10 @@ namespace Kago171.SpatialMusic.Udon
         [Header("【Playerの位置に応じて再生状態や音量を変化させる】")]
 
         [SerializeField]
+        [Tooltip("使用する SpatialMusicPlayerManager")]
+        SpatialMusicPlayerManager manager; // 使用する SpatialMusicPlayerManager（基本的に、シーン内に配置する SpatialMusicPlayerManager は1つだけにする）
+
+        [SerializeField]
         [Tooltip("再生する音源ファイル(ogg等)")]
         AudioClip musicClip;
 
@@ -55,10 +59,6 @@ namespace Kago171.SpatialMusic.Udon
         [SerializeField]
         [Tooltip("音源のループ再生 true:する, false:しない")]
         bool loopPlay = true;
-
-        [SerializeField]
-        [Tooltip("使用する SpatialMusicPlayerManager")]
-        SpatialMusicPlayerManager manager; // 使用する SpatialMusicPlayerManager（基本的に、シーン内に配置する SpatialMusicPlayerManager は1つだけにする）
 
         [SerializeField]
         [Tooltip("デバッグ用：音が出ていなくてもログ出力する")]

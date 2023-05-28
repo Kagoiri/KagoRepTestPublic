@@ -14,6 +14,10 @@ namespace Kago171.SpatialMusic.Udon
         [Header("【Playerの位置に応じて再生状態や音量を変化させる】")]
 
         [SerializeField]
+        [Tooltip("使用する SpatialMusicPlayerManager")]
+        SpatialMusicPlayerManager manager; // 使用する SpatialMusicPlayerManager（基本的に、シーン内に配置する SpatialMusicPlayerManager は1つだけにする）
+
+        [SerializeField]
         [Tooltip("オープニング楽曲のループ音源用ファイル(ogg等)")]
         AudioClip loopMusicClip;
 
@@ -76,10 +80,6 @@ namespace Kago171.SpatialMusic.Udon
         [SerializeField]
         [Tooltip("true: ResetAreaに入った時, false: ResetAreaを出た時 に自動的にオープニング音源再生状況をリセットする")]
         bool resetWhenEnterResetArea = true;
-
-        [SerializeField]
-        [Tooltip("使用する SpatialMusicPlayerManager")]
-        SpatialMusicPlayerManager manager; // 使用する SpatialMusicPlayerManager（基本的に、シーン内に配置する SpatialMusicPlayerManager は1つだけにする）
 
         float mainLastVolume = 0f;
 

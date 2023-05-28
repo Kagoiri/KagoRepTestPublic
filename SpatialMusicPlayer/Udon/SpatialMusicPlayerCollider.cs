@@ -9,7 +9,7 @@ namespace Kago171.SpatialMusic.Udon
     public class SpatialMusicPlayerCollider : UdonSharpBehaviour
     {
         [Space(10)]
-        [Header("ただし、SafeArea として使う場合、同じObject に Collider を追加し Is Trigger を有効にすること")]
+        [Header("ただし、SafeArea, EndLoopArea, ResetArea として使う場合、同じObject に Collider を追加し Is Trigger を有効にすること")]
         [Header("※Colliderコンポーネントは不要")]
         [Header("【SpatialMusicPlayerの音量計算に用いるCollider】")]
 
